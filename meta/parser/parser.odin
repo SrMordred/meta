@@ -10,18 +10,6 @@ Token_Type :: token.Token_Type;
 print :: fmt.println;
 printf :: fmt.printf;
 
-Func_Decl :: struct
-{
-	func_name: string,
-	return_type: string,
-	// param_list: 
-}
-
-Declaration :: union
-{
-	Func_Decl,
-}
-
 Parser :: struct
 {
 	current:^Token
@@ -30,6 +18,10 @@ Parser :: struct
 Stmt_Type :: enum
 {
 	Var_Decl,
+	Var_Assign,
+	Expr_Stmt,
+	Block,
+	If,
 	Error
 }
 
@@ -38,11 +30,38 @@ Stmt :: struct
 	type: Stmt_Type
 }
 
+If :: struct
+{
+	using node: Stmt,
+	cond: ^Expr,
+	then: ^Stmt,
+	_else: ^Stmt
+}
+
+Block :: struct
+{
+	using node: Stmt,
+	stmts: []^Stmt	
+}
+
+Expr_Stmt :: struct
+{
+	using node: Stmt,
+	expr: ^Expr
+}
+
 Var_Decl :: struct
 {
 	using node: Stmt,
 	var: ^Token,
 	init: ^Expr
+}
+
+Var_Assign :: struct
+{
+	using node: Stmt,
+	var: ^Token,
+	init: ^Expr	
 }
 
 Expr_Type :: enum
@@ -177,6 +196,41 @@ make_var_decl :: proc ( var: ^Token, init: ^Expr ) -> ^Stmt
 	return stmt;
 }
 
+make_var_assign :: proc ( var: ^Token, init: ^Expr ) -> ^Stmt
+{
+	stmt := new( Var_Assign );
+	stmt.type = .Var_Assign;
+	stmt.var  = var;
+	stmt.init = init;
+	return stmt;
+}
+
+make_expr_stmt :: proc ( expr: ^Expr ) -> ^Stmt
+{
+	stmt := new( Expr_Stmt );
+	stmt.type = .Expr_Stmt;
+	stmt.expr  = expr;
+	return stmt;
+}
+
+make_block :: proc ( stmts: []^Stmt ) -> ^Stmt
+{
+	stmt := new( Block );
+	stmt.type = .Block;
+	stmt.stmts  = stmts;
+	return stmt;
+}
+
+make_if :: proc ( cond: ^Expr, then: ^Stmt, _else: ^Stmt ) -> ^Stmt
+{
+	stmt :       = new( If );
+	stmt.type    = .If;
+	stmt.cond    = cond;
+	stmt.then    = then;
+	stmt._else   = _else;
+	return stmt;
+}
+
 run :: proc ( tokens: []Token ) -> []^Stmt
 {
 	parser := Parser
@@ -244,6 +298,11 @@ peek :: proc (p: ^Parser) -> ^Token
     return p.current;
 }  
 
+peek_next :: proc (p: ^Parser) -> ^Token
+{           
+    return mem.ptr_offset( p.current, 1 );
+}  
+
 consume :: proc(p: ^Parser, type: Token_Type) -> (^Token, bool)
 {
     if (check(p, type)) do return advance(p), true;
@@ -272,25 +331,151 @@ error_expr :: proc (p: ^Parser, error: string) -> ^Expr
 
 declaration :: proc ( p: ^Parser ) -> ^Stmt
 {
-	id := peek(p);
-	if id.type == .ID
-	{	
-		advance(p);
-		if match(p, .COLON)
+	if match(p, .ID)
+	{
+		id := previous(p);
+
+		if match(p , .COLON_COLON) // id :: decl
 		{
-			if match(p, .EQUAL)
+			// if match( p, .PROC )
+			// {
+			// 	return function(p);
+			// }
+
+			return error_stmt(p, "Var declaration expected!");
+
+		}
+
+		if match(p, .DEFINE) // id := expr;
+		{
+			expr := expression(p);
+			if err_tk, ok := consume( p, .SEMICOLON ) ; !ok
 			{
-				expr := expression(p);
-				err_tk, ok := consume( p, .SEMICOLON );
-				if !ok 
-				{
-					return error_stmt( p,"Expected ; at end of declaration." );
-				}
-				return make_var_decl(id, expr);
+				return error_stmt( p,"Expected ; at end of declaration." );
 			}
+			return make_var_decl(id, expr);
+		}
+
+		if match(p, .EQUAL ) // id = expr;
+		{
+			expr := expression(p);
+			if err_tk, ok := consume( p, .SEMICOLON ) ; !ok
+			{
+				return error_stmt( p,"Expected ; at end of declaration." );
+			}
+			return make_var_assign(id, expr);	
+		}
+
+		return error_stmt(p, "Var declaration expected!");
+	}
+	return statement(p);
+}
+
+var_decl :: proc (p: ^Parser) -> ^Stmt
+{
+	if match(p, .ID)
+	{
+		id := previous(p);
+		if match(p, .DEFINE)
+		{
+			expr := expression(p);
+			if err_tk, ok := consume( p, .SEMICOLON ) ; !ok
+			{
+				return error_stmt( p,"Expected ; at end of declaration." );
+			}
+			return make_var_decl(id, expr);
 		}
 	}
-	return error_stmt(p, "Var declaration expected!");
+	return error_stmt(p, "Variable declaration expected.");
+}
+
+var_assign :: proc (p: ^Parser) -> ^Stmt
+{
+	if match(p, .ID)
+	{
+		id := previous(p);
+		if match(p, .EQUAL)
+		{
+			expr := expression(p);
+			if err_tk, ok := consume( p, .SEMICOLON ) ; !ok
+			{
+				return error_stmt( p,"Expected ; at end of declaration." );
+			}
+			return make_var_assign(id, expr);
+		}
+	}
+	return error_stmt(p, "Variable assignment expected.");
+}
+
+
+statement :: proc (p: ^Parser) -> ^Stmt
+{
+	if match( p, .LEFT_BRACE )
+	{
+		return block(p);
+	}
+
+	if match(p, .IF)
+	{
+		return if_stmt(p);
+	}
+
+	if peek_next(p).type == .DEFINE 
+	{
+		return var_decl(p);
+	}
+
+	if peek_next(p).type == .EQUAL 
+	{
+		return var_assign(p);
+	}
+
+	return expression_stmt( p );
+}
+
+if_stmt :: proc (p: ^Parser) -> ^Stmt
+{
+	expr := expression(p);
+	stmt := statement(p);
+	_else: ^Stmt;
+
+	if match(p, .ELSE)
+	{
+
+		_else = statement(p);
+	}
+	return make_if(expr, stmt, _else);
+}
+
+block :: proc (p: ^Parser) -> ^Stmt
+{                      
+    stmts : [dynamic]^Stmt;
+
+    for !check(p, .RIGHT_BRACE) && !is_eof_tk(p)
+    {     
+    	append(&stmts, declaration(p));
+    }            
+
+    if err_tk, ok := consume( p, .RIGHT_BRACE ) ; !ok
+	{
+		return error_stmt( p,"Expected } after scope block." );
+	}
+    return make_block(stmts[:]);
+}    
+
+expression_stmt :: proc (p: ^Parser) -> ^Stmt
+{
+	expr := expression(p);
+	if err_tk, ok := consume( p, .SEMICOLON ) ; !ok
+	{
+		return error_stmt(p, "Expected ; after expression.");
+	}
+	return make_expr_stmt(expr);
+}
+
+function :: proc (p: ^Parser) -> ^Stmt
+{
+	return nil;
 }
 
 expression :: proc ( p: ^Parser ) -> ^Expr
@@ -378,7 +563,6 @@ primary :: proc (p: ^Parser) -> ^Expr
     {
     	return make_var( previous(p) );
     }
-    print("ERR");
     error := make_error( "Unexpected primary expression.", previous(p) );
 
     sync_after_error(p);

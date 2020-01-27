@@ -18,6 +18,8 @@ Token_Type :: enum
 	MINUS,
 
 	COLON,
+	COLON_COLON, // ::
+	DEFINE, // := 
 	SEMICOLON,
 	COMMA,
 	DOT,
@@ -32,6 +34,9 @@ Token_Type :: enum
 	GREATER_EQUAL,
 	LESS,
 	LESS_EQUAL,
+
+	IF,
+	ELSE,
 
 	EOF
 }

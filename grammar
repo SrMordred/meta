@@ -1,9 +1,10 @@
 program        -> declaration* EOF ;
-declaration    -> varDecl
+declaration    -> varDecl | varAssign
             	  | statement ;
-statement 	   -> exprStmt ;
+statement 	   -> exprStmt | block ;
 
-varDecl 	   -> IDENTIFIER ( ":=" expression ) ? ";" ;
+varDecl 	   -> IDENTIFIER ":=" expression ";" ;
+varAssign      -> IDENTIFIER "=" expression ";" ;
 
 
 exprStmt 	   -> expression ";"
@@ -19,3 +20,7 @@ primary        -> NUMBER | STRING
 				  |"false" | "true" | "null"
                	  | "(" expression ")" 
                	  | IDENTIFIER;
+block          -> "{" declaration* "}" ;
+
+
+block     -> "{" declaration* "}" ;

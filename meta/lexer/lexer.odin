@@ -145,8 +145,11 @@ identifier :: proc ( l: ^Lexer )
 	for is_alphanumeric( peek( l ) )
 		do advance( l );
 
-	//	TODO: keywords
-	token_create(l, .ID);
+	id := to_text( l.start, l.current );
+
+	if id == "if" do token_create( l, .IF );
+	else if id == "else" do token_create( l, .ELSE );
+	else do token_create(l, .ID);
 }
 
 number :: proc ( l :^Lexer )
@@ -264,7 +267,14 @@ run :: proc ( file:string ) -> []Token
 			case '>': token_create( l, match(l,'=') ? .GREATER_EQUAL : .GREATER );
 
 			case ';': token_create( l, .SEMICOLON );
-			case ':': token_create( l, .COLON );
+			case ':': 
+			// :: , := , : 
+			token_create( l, 
+				match(l,':') ?
+				.COLON_COLON : 
+				( match(l,'=') ?
+				  .DEFINE : 
+				  .COLON ));
 			case ',': token_create( l, .COMMA );
 			case '.': 
 				if is_digit( peek(l) ) do number_float( l );
