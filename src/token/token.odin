@@ -18,11 +18,15 @@ Token_Type :: enum
 	MINUS,
 
 	COLON,
-	COLON_COLON, // ::
-	DEFINE, // := 
 	SEMICOLON,
 	COMMA,
 	DOT,
+
+	OR,
+	AND,
+
+	BITOR,
+	BITAND,
 
 	NOT,
 	EQUAL,
@@ -37,14 +41,18 @@ Token_Type :: enum
 
 	IF,
 	ELSE,
+	WHILE,
 
-	EOF
+	EOF,
+
+	AUTO, //token for automatic type detection
 }
 
 Token :: struct
 {
 	type: Token_Type,
 	text: string,
-	line: int,
+	line: u32,
+	col:  u32
 }
 

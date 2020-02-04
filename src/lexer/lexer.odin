@@ -4,7 +4,7 @@ import "core:fmt";
 import "core:os";
 import "core:mem";
 
-import "meta:token"
+import "lib:token"
 
 print :: fmt.println;
 printf :: fmt.printf;
@@ -90,7 +90,8 @@ Lexer :: struct
 {
 	start: ^u8,
 	current:^u8,
-	line: int,
+	line: u32,
+	col: u32,
 	tokens: [dynamic]Token
 }
 
@@ -98,6 +99,7 @@ advance :: proc ( l: ^Lexer ) -> u8
 {
 	result := l.current^;
 	l.current = mem.ptr_offset( l.current, 1 );
+	l.col += 1;
 	return result;
 }
 
@@ -119,14 +121,15 @@ peek_next :: proc ( l: ^Lexer ) -> u8
 	return mem.ptr_offset( l.current, 1 )^;
 }
 
-token_create :: proc ( l: ^Lexer, type : Token_Type )
+make_token :: proc ( l: ^Lexer, type : Token_Type )
 {
 	append( &l.tokens, 
 		Token
 		{
 			type = type,
 			text = to_text( l.start, l.current ),
-			line = l.line
+			line = u32(l.line),
+			col  = l.col
 		});
 }
 
@@ -147,9 +150,10 @@ identifier :: proc ( l: ^Lexer )
 
 	id := to_text( l.start, l.current );
 
-	if id == "if" do token_create( l, .IF );
-	else if id == "else" do token_create( l, .ELSE );
-	else do token_create(l, .ID);
+	if id == "if" do make_token( l, .IF );
+	else if id == "else" do make_token( l, .ELSE );
+	else if id == "while" do make_token( l, .WHILE );
+	else do make_token(l, .ID);
 }
 
 number :: proc ( l :^Lexer )
@@ -162,7 +166,7 @@ number :: proc ( l :^Lexer )
 		advance(l);
 		for is_digit( peek( l ) ) do advance( l );
 	}
-	token_create(l, type);
+	make_token(l, type);
 }
 
 number_float :: proc ( l :^Lexer )
@@ -170,7 +174,7 @@ number_float :: proc ( l :^Lexer )
 	advance(l);
 	for is_digit( peek( l ) ) do advance( l );
 
-	token_create(l, .FLOAT);
+	make_token(l, .FLOAT);
 }
 
 _string :: proc ( l: ^Lexer )
@@ -184,7 +188,7 @@ _string :: proc ( l: ^Lexer )
 		advance(l);
 	}
 
-	token_create(l, .STRING);
+	make_token(l, .STRING);
 }
 
 comment_line :: proc (l: ^Lexer)
@@ -192,7 +196,8 @@ comment_line :: proc (l: ^Lexer)
 	for 
 	{
 		c := peek(l);
-		if c == '\n' || c == 0 do break;
+		if c == '\n' { l.col = 1; break; }
+		if c == 0 do break;
 		advance(l);
 	}
 }
@@ -229,11 +234,19 @@ run :: proc ( file:string ) -> []Token
 		return {};
 	}
 
+	if len(bytes) == 0
+	{
+		lexer := Lexer{};
+		make_token( &lexer, .EOF );
+		return lexer.tokens[:];
+	} 
+
 	lexer := Lexer
 	{
 		start   = &bytes[0],
 		current = &bytes[0],
 		line    = 1,
+		col     = 1,
 		tokens  = make([dynamic]Token, 0,32)
 	};
 
@@ -248,46 +261,44 @@ run :: proc ( file:string ) -> []Token
 			case 'a'..'z', 'A'..'Z', '_': identifier( l );
 			case '0' .. '9' : number( l );
 
-			case '(': token_create( l, .LEFT_PAREN );
-			case ')': token_create( l, .RIGHT_PAREN );
-			case '{': token_create( l, .LEFT_BRACE );
-			case '}': token_create( l, .RIGHT_BRACE );
+			case '(': make_token( l, .LEFT_PAREN );
+			case ')': make_token( l, .RIGHT_PAREN );
+			case '{': make_token( l, .LEFT_BRACE );
+			case '}': make_token( l, .RIGHT_BRACE );
 
-			case '+': token_create( l, .PLUS );
-			case '-': token_create( l, .MINUS );
-			case '*': token_create( l, .STAR );
+			case '+': make_token( l, .PLUS );
+			case '-': make_token( l, .MINUS );
+			case '*': make_token( l, .STAR );
 			case '/': 
 				if match(l,'/') do comment_line(l); //comments dont generate tokens for now
 				else if match(l,'*') do comment_block(l);
-				else do token_create(l, .SLASH);
+				else do make_token(l, .SLASH);
 
-			case '!': token_create( l, match(l,'=') ? .NOT_EQUAL : .NOT );
-			case '=': token_create( l, match(l,'=') ? .EQUAL_EQUAL : .EQUAL );
-			case '<': token_create( l, match(l,'=') ? .LESS_EQUAL : .LESS );
-			case '>': token_create( l, match(l,'=') ? .GREATER_EQUAL : .GREATER );
+			case '!': make_token( l, match(l,'=') ? .NOT_EQUAL : .NOT );
+			case '=': make_token( l, match(l,'=') ? .EQUAL_EQUAL : .EQUAL );
+			case '<': make_token( l, match(l,'=') ? .LESS_EQUAL : .LESS );
+			case '>': make_token( l, match(l,'=') ? .GREATER_EQUAL : .GREATER );
 
-			case ';': token_create( l, .SEMICOLON );
-			case ':': 
-			// :: , := , : 
-			token_create( l, 
-				match(l,':') ?
-				.COLON_COLON : 
-				( match(l,'=') ?
-				  .DEFINE : 
-				  .COLON ));
-			case ',': token_create( l, .COMMA );
+			case '&': make_token( l, match(l, '&') ? .AND : .BITAND );
+			case '|': make_token( l, match(l, '|') ? .OR : .BITOR );
+
+			case ';': make_token( l, .SEMICOLON );
+			case ':': make_token( l, .COLON );
+			case ',': make_token( l, .COMMA );
 			case '.': 
 				if is_digit( peek(l) ) do number_float( l );
-				else do token_create( l, .DOT );
+				else do make_token( l, .DOT );
 
 			case ' ','\r','\t':;
 
-			case '\n': l.line += 1;
+			case '\n': 
+				l.line += 1;
+				l.col = 1;
 
 			case '"' : _string( l );
 
 			case 0:
-				token_create( l, .EOF );
+				make_token( l, .EOF );
 				break OUT;
 
 			case:
